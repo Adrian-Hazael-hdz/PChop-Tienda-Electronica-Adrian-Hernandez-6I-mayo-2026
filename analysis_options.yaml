@@ -1,0 +1,10 @@
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    # Reglas específicas adicionales
+    prefer_const_constructors: true
+    prefer_const_declarations: true
+    always_specify_types: false
+    avoid_print: true # Enforzar debugPrint()
+    use_build_context_synchronously: true
