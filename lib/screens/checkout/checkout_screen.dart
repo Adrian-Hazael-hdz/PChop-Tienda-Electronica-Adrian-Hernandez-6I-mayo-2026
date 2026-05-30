@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_colors.dart';
 import '../../providers/auth_provider.dart';
@@ -16,8 +17,70 @@ class CheckoutScreen extends StatefulWidget {
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
   String _selectedPaymentMethod = 'efectivo'; // Default
+  
+  // Variables for coupon system
+  final TextEditingController _couponController = TextEditingController();
+  String? _appliedCoupon;
+  double _discountPercentage = 0.0;
+  bool _isApplyingCoupon = false;
+  String? _couponMessage;
 
-  Future<void> _processCheckout() async {
+  Future<void> _applyCoupon() async {
+    final code = _couponController.text.trim().toUpperCase();
+    if (code.isEmpty) return;
+
+    setState(() {
+      _isApplyingCoupon = true;
+      _couponMessage = null;
+    });
+
+    try {
+      final doc = await FirebaseFirestore.instance.collection('cupones').doc(code).get();
+      if (doc.exists) {
+        final data = doc.data();
+        if (data != null && data['activo'] == true) {
+          setState(() {
+            _appliedCoupon = code;
+            _discountPercentage = (data['porcentaje'] as num?)?.toDouble() ?? 0.0;
+            _couponMessage = 'Cupón aplicado con éxito (${_discountPercentage.toStringAsFixed(0)}%)';
+          });
+        } else {
+          setState(() {
+            _appliedCoupon = null;
+            _discountPercentage = 0.0;
+            _couponMessage = 'El cupón ya no es válido o está inactivo';
+          });
+        }
+      } else {
+        setState(() {
+          _appliedCoupon = null;
+          _discountPercentage = 0.0;
+          _couponMessage = 'Cupón inválido o no existe';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _appliedCoupon = null;
+        _discountPercentage = 0.0;
+        _couponMessage = 'Error al validar cupón';
+      });
+    } finally {
+      setState(() {
+        _isApplyingCoupon = false;
+      });
+    }
+  }
+
+  void _removeCoupon() {
+    setState(() {
+      _appliedCoupon = null;
+      _discountPercentage = 0.0;
+      _couponController.clear();
+      _couponMessage = null;
+    });
+  }
+
+  Future<void> _processCheckout(double finalTotal) async {
     final authProvider = context.read<AuthProvider>();
     final cartProvider = context.read<CartProvider>();
     final orderProvider = context.read<OrderProvider>();
@@ -29,7 +92,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       uid: user.uid,
       items: cartProvider.items,
       paymentMethod: _selectedPaymentMethod,
-      total: cartProvider.total,
+      total: finalTotal,
     );
 
     if (mounted) {
@@ -70,6 +133,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   Widget build(BuildContext context) {
     final cartProvider = context.watch<CartProvider>();
     final orderProvider = context.watch<OrderProvider>();
+
+    final subtotal = cartProvider.total;
+    final discountAmount = subtotal * (_discountPercentage / 100.0);
+    final finalTotal = subtotal - discountAmount;
 
     return Scaffold(
       appBar: AppBar(
@@ -121,6 +188,95 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           ),
                         );
                       },
+                    ),
+                  ),
+                  const SizedBox(height: AppConstants.kSpaceLG),
+                  
+                  // Sistema de Cupones
+                  Text(
+                    'Cupón de descuento',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(height: AppConstants.kSpaceSM),
+                  Container(
+                    padding: const EdgeInsets.all(AppConstants.kSpaceMD),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(AppConstants.kBorderRadiusCard),
+                      border: Border.all(color: AppColors.divider),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (_appliedCoupon == null)
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _couponController,
+                                  textCapitalization: TextCapitalization.characters,
+                                  decoration: const InputDecoration(
+                                    hintText: 'Ingresa tu código',
+                                    isDense: true,
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: AppConstants.kSpaceSM),
+                              ElevatedButton(
+                                onPressed: _isApplyingCoupon ? null : _applyCoupon,
+                                style: ElevatedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                ),
+                                child: _isApplyingCoupon
+                                    ? const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                      )
+                                    : const Text('Aplicar'),
+                              ),
+                            ],
+                          )
+                        else
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.local_offer, color: AppColors.success),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    _appliedCoupon!,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '(-${_discountPercentage.toStringAsFixed(0)}%)',
+                                    style: const TextStyle(color: AppColors.success, fontWeight: FontWeight.w500),
+                                  ),
+                                ],
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close, color: Colors.red),
+                                onPressed: _removeCoupon,
+                                tooltip: 'Quitar cupón',
+                              ),
+                            ],
+                          ),
+                        if (_couponMessage != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            _couponMessage!,
+                            style: TextStyle(
+                              color: _appliedCoupon != null ? AppColors.success : Colors.red,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                   const SizedBox(height: AppConstants.kSpaceLG),
@@ -182,9 +338,22 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             const Text('Subtotal:'),
-                            Text('\$${cartProvider.total.toStringAsFixed(2)}'),
+                            Text('\$${subtotal.toStringAsFixed(2)}'),
                           ],
                         ),
+                        if (_appliedCoupon != null) ...[
+                          const SizedBox(height: AppConstants.kSpaceXS),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('Descuento (${_discountPercentage.toStringAsFixed(0)}%):'),
+                              Text(
+                                '-\$${discountAmount.toStringAsFixed(2)}',
+                                style: const TextStyle(color: AppColors.success),
+                              ),
+                            ],
+                          ),
+                        ],
                         const SizedBox(height: AppConstants.kSpaceXS),
                         const Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -204,7 +373,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                   ),
                             ),
                             Text(
-                              '\$${cartProvider.total.toStringAsFixed(2)}',
+                              '\$${finalTotal.toStringAsFixed(2)}',
                               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                                     color: AppColors.primaryDark,
                                     fontWeight: FontWeight.bold,
@@ -221,7 +390,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: cartProvider.items.isEmpty ? null : _processCheckout,
+                      onPressed: cartProvider.items.isEmpty ? null : () => _processCheckout(finalTotal),
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
@@ -234,3 +403,4 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 }
+
