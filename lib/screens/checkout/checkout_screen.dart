@@ -304,17 +304,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           });
                         }
                       },
-                      child: Column(
+                      child: const Column(
                         children: [
-                          const RadioListTile<String>(
+                          RadioListTile<String>(
                             title: Text('Efectivo contra entrega'),
                             value: 'efectivo',
                           ),
-                          const RadioListTile<String>(
+                          RadioListTile<String>(
                             title: Text('Tarjeta de Crédito / Débito (Simulado)'),
                             value: 'tarjeta',
                           ),
-                          const RadioListTile<String>(
+                          RadioListTile<String>(
                             title: Text('PayPal (Simulado)'),
                             value: 'paypal',
                           ),
